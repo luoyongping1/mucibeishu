@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>背书助手 - 移动端设计</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <!-- 顶部状态栏模拟 -->
+    <header class="app-header">
+        <h1 id="page-title">文件管理</h1>
+    </header>
+
+    <!-- 主内容区域 -->
+    <main id="app-content">
+        <div class="content-section active" id="section-files">
+            <div id="file-list" class="file-list">
+                <!-- 文件项将在这里动态生成 -->
+            </div>
+            <div id="files-empty" class="empty-state">
+                <div class="icon">📂</div>
+                <p>暂无文件，点击右下角上传</p>
+            </div>
+        </div>
+        <div class="content-section" id="section-cards">
+            <div id="card-box-list" class="card-box-grid">
+                <!-- 闪卡盒将在这里动态生成 -->
+            </div>
+            <div id="cards-empty" class="empty-state">
+                <div class="icon">🃏</div>
+                <p>暂无闪卡，点击右下角从文件创建</p>
+            </div>
+        </div>
+        <div class="content-section" id="section-community">
+            <div class="community-list" id="community-list">
+                <!-- 模拟搭子数据 -->
+                <div class="community-card">
+                    <div class="user-avatar">🎓</div>
+                    <div class="user-info">
+                        <div class="user-name">考研上岸人 <span class="tag">法硕</span></div>
+                        <div class="user-status">正在背诵：刑法分则</div>
+                    </div>
+                    <button class="follow-btn">连线</button>
+                </div>
+                <div class="community-card">
+                    <div class="user-avatar">📚</div>
+                    <div class="user-info">
+                        <div class="user-name">英语单词王 <span class="tag">雅思</span></div>
+                        <div class="user-status">今日已坚持 120 分钟</div>
+                    </div>
+                    <button class="follow-btn">连线</button>
+                </div>
+                <div class="community-card">
+                    <div class="user-avatar">✍️</div>
+                    <div class="user-info">
+                        <div class="user-name">医学小能手 <span class="tag">执医</span></div>
+                        <div class="user-status">求一个解剖学背书搭子</div>
+                    </div>
+                    <button class="follow-btn">连线</button>
+                </div>
+            </div>
+        </div>
+        <div class="content-section" id="section-mistakes">
+            <div id="mistake-groups" class="mistake-groups">
+                <!-- 错题按文件分组将在这里动态生成 -->
+            </div>
+            <div id="mistakes-empty" class="empty-state">
+                <div class="icon">❌</div>
+                <p>错题集是进步的阶梯</p>
+            </div>
+            <div id="mistake-actions" class="section-actions" style="display:none; padding: 16px;">
+                <button id="btn-clear-mistakes" class="secondary-btn" style="width:100%; color: #ff4d4f; border-color: #ff4d4f;">清空错题集</button>
+            </div>
+        </div>
+        <div class="content-section" id="section-settings">
+            <div class="settings-list">
+                <div class="settings-item">个人资料</div>
+                <div class="settings-item">学习提醒</div>
+                <div class="settings-group">
+                    <div class="settings-item group-title">AI 外接 API 配置</div>
+                    <div class="api-config-form">
+                        <div class="input-group">
+                            <label>API URL</label>
+                            <input type="text" id="api-url" placeholder="https://api.openai.com/v1">
+                        </div>
+                        <div class="input-group">
+                            <label>API Key</label>
+                            <input type="password" id="api-key" placeholder="sk-...">
+                        </div>
+                        <div class="input-group">
+                            <label>选择模型</label>
+                            <div class="model-select-wrapper">
+                                <select id="api-model">
+                                    <option value="">请先获取模型</option>
+                                </select>
+                                <button id="fetch-models-btn" class="secondary-btn">获取列表</button>
+                            </div>
+                        </div>
+                        <button id="save-api-btn" class="primary-btn">保存配置</button>
+                    </div>
+                </div>
+                <div class="settings-item">关于我们</div>
+            </div>
+        </div>
+    </main>
+
+    <!-- 悬浮上传按钮 -->
+    <div id="fab" class="fab">
+        <svg viewBox="0 0 24 24" width="28" height="28">
+            <path fill="currentColor" d="M19,13H13V19H11V13H5V11H11V5H13V11H19V13Z" />
+        </svg>
+        <input type="file" id="file-input" hidden multiple>
+    </div>
+
+    <!-- 底部导航栏 -->
+    <nav class="bottom-nav">
+        <div class="nav-item active" data-target="files" data-title="文件管理">
+            <svg class="nav-icon" viewBox="0 0 24 24"><path d="M13,9V3.5L18.5,9M6,2C4.89,2 4,2.89 4,4V20A2,2 0 0,0 6,22H18A2,2 0 0,0 20,20V8L14,2H6Z" /></svg>
+            <span>文件</span>
+        </div>
+        <div class="nav-item" data-target="cards" data-title="闪卡学习">
+            <svg class="nav-icon" viewBox="0 0 24 24"><path d="M21,16.5C21,16.88 20.79,17.21 20.47,17.38L12.57,21.82C12.41,21.94 12.21,22 12,22C11.79,22 11.59,21.94 11.43,21.82L3.53,17.38C3.21,17.21 3,16.88 3,16.5V7.5C3,7.12 3.21,6.79 3.53,6.62L11.43,2.18C11.59,2.06 11.79,2 12,2C12.21,2 12.41,2.06 12.57,2.18L20.47,6.62C20.79,6.79 21,7.12 21,7.5V16.5Z" /></svg>
+            <span>闪卡</span>
+        </div>
+        <div class="nav-item" data-target="community" data-title="学习社区">
+            <svg class="nav-icon" viewBox="0 0 24 24"><path d="M16,13C15.71,13 15.38,13 15.03,13.05C16.19,13.89 17,15 17,16.5V19H23V16.5C23,14.17 18.33,13 16,13M8,13C5.67,13 1,14.17 1,16.5V19H15V16.5C15,14.17 10.33,13 8,13M8,11A3,3 0 0,0 11,8A3,3 0 0,0 8,5A3,3 0 0,0 5,8A3,3 0 0,0 8,11M16,11A3,3 0 0,0 19,8A3,3 0 0,0 16,5A3,3 0 0,0 13,8A3,3 0 0,0 16,11Z" /></svg>
+            <span>搭子</span>
+        </div>
+        <div class="nav-item" data-target="mistakes" data-title="错题集">
+            <svg class="nav-icon" viewBox="0 0 24 24"><path d="M13,14H11V10H13M13,18H11V16H13M1,21H23L12,2L1,21Z" /></svg>
+            <span>错题</span>
+        </div>
+        <div class="nav-item" data-target="settings" data-title="设置">
+            <svg class="nav-icon" viewBox="0 0 24 24"><path d="M12,15.5A3.5,3.5 0 0,1 8.5,12A3.5,3.5 0 0,1 12,8.5A3.5,3.5 0 0,1 15.5,12A3.5,3.5 0 0,1 12,15.5M19.43,12.97C19.47,12.65 19.5,12.33 19.5,12C19.5,11.67 19.47,11.34 19.43,11.03L21.54,9.37C21.73,9.22 21.78,8.95 21.66,8.73L19.66,5.27C19.54,5.05 19.27,4.97 19.05,5.05L16.56,6.05C16.04,5.65 15.48,5.32 14.87,5.07L14.5,2.42C14.46,2.18 14.25,2 14,2H10C9.75,2 9.54,2.18 9.5,2.42L9.13,5.07C8.52,5.32 7.96,5.65 7.44,6.05L4.95,5.05C4.73,4.97 4.46,5.05 4.34,5.27L2.34,8.73C2.21,8.95 2.27,9.22 2.46,9.37L4.57,11.03C4.53,11.34 4.5,11.67 4.5,12C4.5,12.33 4.53,12.65 4.57,12.97L2.46,14.63C2.27,14.78 2.21,15.05 2.34,15.27L4.34,18.73C4.46,18.95 4.73,19.03 4.95,18.95L7.44,17.95C7.96,18.35 8.52,18.68 9.13,18.93L9.5,21.58C9.54,21.82 9.75,22 10,22H14C14.25,22 14.46,21.82 14.5,21.58L14.87,18.93C15.48,18.68 16.04,18.35 16.56,17.95L19.05,18.95C19.27,19.03 19.54,18.95 19.66,18.73L21.66,15.27C21.78,15.05 21.73,14.78 21.54,14.63L19.43,12.97Z" /></svg>
+            <span>设置</span>
+        </div>
+    </nav>
+
+    <!-- 文件详情预览层 -->
+    <div id="file-viewer" class="file-viewer">
+        <header class="viewer-header">
+            <button id="close-viewer" class="back-btn">✕</button>
+            <h2 id="viewer-title">文件预览</h2>
+            <button id="btn-chapter-menu" class="back-btn" style="visibility: hidden;">
+                <svg viewBox="0 0 24 24" width="24" height="24"><path fill="currentColor" d="M3,6H21V8H3V6M3,11H21V13H3V11M3,16H21V18H3V16Z" /></svg>
+            </button>
+        </header>
+        
+        <!-- 章节选择侧滑面板 -->
+        <div id="chapter-sidebar" class="chapter-sidebar">
+            <div class="sidebar-header">
+                <span>章节目录</span>
+                <button id="close-sidebar">✕</button>
+            </div>
+            <div id="chapter-list" class="chapter-list">
+                <!-- 章节项 -->
+            </div>
+        </div>
+
+        <div class="viewer-content" id="viewer-body">
+            <!-- 文件内容 -->
+        </div>
+
+        <!-- 挖空模式子工具栏 -->
+        <div id="cloze-toolbar" class="sub-toolbar">
+            <div class="sub-action" id="btn-ai-cloze">🪄 AI挖空</div>
+            <div class="sub-action" id="btn-manual-cloze">✍️ 手动</div>
+            <div class="sub-action" id="btn-delete-cloze">🗑️ 删除挖空</div>
+            <div class="sub-action" id="btn-reset-cloze">🔄 重置</div>
+            <div class="sub-action close-sub" id="btn-exit-cloze">退出</div>
+        </div>
+
+        <footer class="viewer-actions">
+            <div class="action-btn" id="btn-cloze-mode">
+                <div class="action-icon">🧩</div>
+                <span>挖空</span>
+            </div>
+            <div class="action-btn" id="btn-read">
+                <div class="action-icon">🔊</div>
+                <span>AI朗读</span>
+            </div>
+            <div class="action-btn" id="btn-mindmap">
+                <div class="action-icon">🌿</div>
+                <span>思维导图</span>
+            </div>
+            <div class="action-btn" id="btn-divide-chapters">
+                <div class="action-icon">📑</div>
+                <span>划分章节</span>
+            </div>
+            <div class="action-btn" id="btn-quiz">
+                <div class="action-icon">📝</div>
+                <span>AI出题</span>
+            </div>
+        </footer>
+    </div>
+
+    <!-- 通用选择弹窗 -->
+    <div id="modal-overlay" class="modal-overlay">
+        <div class="modal-content">
+            <h3 id="modal-title" class="modal-title">选择操作</h3>
+            <div id="modal-options" class="modal-options">
+                <!-- 动态生成选项 -->
+            </div>
+            <button id="modal-cancel" class="secondary-btn" style="width: 100%; margin-top: 16px; padding: 12px;">取消</button>
+        </div>
+    </div>
+
+    <!-- AI 出题结果展示层 -->
+    <div id="quiz-viewer" class="quiz-viewer">
+        <header class="quiz-viewer-header">
+            <button id="close-quiz" class="back-btn">✕</button>
+            <h2 id="quiz-type-title">AI 练习题</h2>
+            <div style="width: 40px;"></div>
+        </header>
+        <div class="quiz-viewer-content" id="quiz-display-body">
+            <!-- 题目将在这里动态生成 -->
+        </div>
+    </div>
+
+    <!-- 思维导图预览层 -->
+    <div id="mindmap-viewer" class="mindmap-viewer">
+        <header class="viewer-header">
+            <button id="close-mindmap" class="back-btn">✕</button>
+            <h2>思维导图</h2>
+            <div style="width: 40px;"></div>
+        </header>
+        <div class="mindmap-toolbar">
+            <button id="btn-save-mindmap" class="primary-btn" style="width: auto; padding: 6px 16px;">保存</button>
+            <button id="btn-copy-mindmap" class="secondary-btn" style="padding: 6px 16px;">复制文本</button>
+            <button id="btn-regen-mindmap" class="secondary-btn" style="padding: 6px 16px;">重新生成</button>
+        </div>
+        <div id="mindmap-content" class="mindmap-content">
+            <!-- 思维导图内容 -->
+        </div>
+    </div>
+
+    <!-- 闪卡学习层 -->
+    <div id="card-viewer" class="card-viewer">
+        <header class="viewer-header">
+            <button id="close-card-viewer" class="back-btn">✕</button>
+            <h2 id="card-viewer-title">闪卡学习</h2>
+            <div style="width: 40px;"></div>
+        </header>
+        <div class="card-study-container">
+            <div class="card-flip-container" id="card-flip-main">
+                <div class="card-inner">
+                    <div class="card-front">
+                        <p id="card-front-text">正面内容</p>
+                    </div>
+                    <div class="card-back">
+                        <p id="card-back-text">反面内容</p>
+                    </div>
+                </div>
+            </div>
+            <div class="card-progress">
+                <span id="card-current-index">1</span> / <span id="card-total-count">5</span>
+            </div>
+            <div class="card-controls">
+                <button id="prev-card" class="secondary-btn">上一个</button>
+                <button id="next-card" class="primary-btn">下一个</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"></script>
+    <script src="script.js"></script>
+</body>
+</html>
