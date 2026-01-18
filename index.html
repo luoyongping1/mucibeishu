@@ -33,6 +33,19 @@
             </div>
         </div>
         <div class="content-section" id="section-community">
+            <div class="section-header-inline">
+                <h3>我的 AI 学习搭子</h3>
+            </div>
+            <div class="community-list" id="character-list-container">
+                <!-- 自定义角色将在这里动态生成 -->
+            </div>
+            <div id="characters-empty" class="empty-state" style="margin-top: 40px;">
+                <div class="icon">🤖</div>
+                <p>还没有搭子？点击右下角创建一个吧</p>
+            </div>
+            <div class="section-header-inline" style="margin-top: 24px;">
+                <h3>发现社区搭子</h3>
+            </div>
             <div class="community-list" id="community-list">
                 <!-- 模拟搭子数据 -->
                 <div class="community-card">
@@ -48,14 +61,6 @@
                     <div class="user-info">
                         <div class="user-name">英语单词王 <span class="tag">雅思</span></div>
                         <div class="user-status">今日已坚持 120 分钟</div>
-                    </div>
-                    <button class="follow-btn">连线</button>
-                </div>
-                <div class="community-card">
-                    <div class="user-avatar">✍️</div>
-                    <div class="user-info">
-                        <div class="user-name">医学小能手 <span class="tag">执医</span></div>
-                        <div class="user-status">求一个解剖学背书搭子</div>
                     </div>
                     <button class="follow-btn">连线</button>
                 </div>
@@ -235,6 +240,26 @@
         </div>
     </div>
 
+    <!-- 聊天对话层 -->
+    <div id="chat-viewer" class="chat-viewer">
+        <header class="viewer-header">
+            <button id="close-chat" class="back-btn">✕</button>
+            <h2 id="chat-character-name">AI 搭子</h2>
+            <div class="header-actions">
+                <button id="btn-toggle-action" class="action-toggle-btn" title="动作描写开关">动描: 关</button>
+                <button id="btn-clear-chat" class="back-btn" title="清空记录">🗑️</button>
+            </div>
+        </header>
+        <div class="chat-messages" id="chat-messages">
+            <!-- 聊天记录 -->
+        </div>
+        <div class="chat-input-area">
+            <input type="text" id="chat-input" placeholder="输入消息...">
+            <button id="btn-ai-reply" title="AI 回复">✉️</button>
+            <button id="btn-send-chat" class="primary-btn" style="width: auto;">发送</button>
+        </div>
+    </div>
+
     <!-- 闪卡学习层 -->
     <div id="card-viewer" class="card-viewer">
         <header class="viewer-header">
@@ -263,6 +288,7 @@
         </div>
     </div>
 
+    <input type="file" id="avatar-input" hidden accept="image/*">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"></script>
     <script src="script.js"></script>
 </body>

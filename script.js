@@ -37,11 +37,13 @@ document.addEventListener('DOMContentLoaded', () => {
     const flashcardStoreName = "flashcards";
     const mistakeStoreName = "mistakes";
     const mistakeBookStoreName = "mistakeBooks";
+    const characterStoreName = "characters";
+    const chatMessageStoreName = "chatMessages";
     let db;
 
     const initDB = () => {
         return new Promise((resolve, reject) => {
-            const request = indexedDB.open(dbName, 4);
+            const request = indexedDB.open(dbName, 6);
             request.onupgradeneeded = (e) => {
                 db = e.target.result;
                 if (!db.objectStoreNames.contains(storeName)) {
@@ -55,6 +57,13 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
                 if (!db.objectStoreNames.contains(mistakeBookStoreName)) {
                     db.createObjectStore(mistakeBookStoreName, { keyPath: "id", autoIncrement: true });
+                }
+                if (!db.objectStoreNames.contains(characterStoreName)) {
+                    db.createObjectStore(characterStoreName, { keyPath: "id", autoIncrement: true });
+                }
+                if (!db.objectStoreNames.contains(chatMessageStoreName)) {
+                    const msgStore = db.createObjectStore(chatMessageStoreName, { keyPath: "id", autoIncrement: true });
+                    msgStore.createIndex("charId", "charId", { unique: false });
                 }
             };
             request.onsuccess = (e) => {
@@ -156,6 +165,84 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     };
 
+    const saveCharacterToDB = (charObj) => {
+        return new Promise((resolve) => {
+            const transaction = db.transaction([characterStoreName], "readwrite");
+            const store = transaction.objectStore(characterStoreName);
+            const request = store.put(charObj);
+            request.onsuccess = () => resolve(request.result);
+        });
+    };
+
+    const loadCharactersFromDB = () => {
+        return new Promise((resolve) => {
+            const transaction = db.transaction([characterStoreName], "readonly");
+            const store = transaction.objectStore(characterStoreName);
+            const request = store.getAll();
+            request.onsuccess = () => resolve(request.result);
+        });
+    };
+
+    const deleteCharacterFromDB = (id) => {
+        return new Promise((resolve) => {
+            const transaction = db.transaction([characterStoreName, chatMessageStoreName], "readwrite");
+            const charStore = transaction.objectStore(characterStoreName);
+            const msgStore = transaction.objectStore(chatMessageStoreName);
+            
+            charStore.delete(id);
+            
+            // 删除该角色的所有聊天记录
+            const index = msgStore.index("charId");
+            const request = index.openCursor(IDBKeyRange.only(id));
+            request.onsuccess = (event) => {
+                const cursor = event.target.result;
+                if (cursor) {
+                    cursor.delete();
+                    cursor.continue();
+                } else {
+                    resolve();
+                }
+            };
+        });
+    };
+
+    const saveChatMessageToDB = (msgObj) => {
+        return new Promise((resolve) => {
+            const transaction = db.transaction([chatMessageStoreName], "readwrite");
+            const store = transaction.objectStore(chatMessageStoreName);
+            const request = store.put(msgObj);
+            request.onsuccess = () => resolve(request.result);
+        });
+    };
+
+    const loadChatMessagesFromDB = (charId) => {
+        return new Promise((resolve) => {
+            const transaction = db.transaction([chatMessageStoreName], "readonly");
+            const store = transaction.objectStore(chatMessageStoreName);
+            const index = store.index("charId");
+            const request = index.getAll(IDBKeyRange.only(charId));
+            request.onsuccess = () => resolve(request.result);
+        });
+    };
+
+    const clearChatMessagesFromDB = (charId) => {
+        return new Promise((resolve) => {
+            const transaction = db.transaction([chatMessageStoreName], "readwrite");
+            const store = transaction.objectStore(chatMessageStoreName);
+            const index = store.index("charId");
+            const request = index.openCursor(IDBKeyRange.only(charId));
+            request.onsuccess = (event) => {
+                const cursor = event.target.result;
+                if (cursor) {
+                    cursor.delete();
+                    cursor.continue();
+                } else {
+                    resolve();
+                }
+            };
+        });
+    };
+
     // 模拟文件存储
     let uploadedFiles = [];
     let flashcardBoxes = [];
@@ -167,6 +254,8 @@ document.addEventListener('DOMContentLoaded', () => {
         flashcardBoxes = await loadFlashcardsFromDB();
         renderFileList();
         renderCardBoxes();
+        renderCharacterList();
+        initCommunityConnect();
     });
 
     // --- 1. 底部导航切换逻辑 ---
@@ -189,6 +278,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 renderCardBoxes();
             } else if (target === 'mistakes') {
                 renderMistakes();
+            } else if (target === 'community') {
+                renderCharacterList();
             }
 
             pageTitle.textContent = title;
@@ -243,6 +334,19 @@ document.addEventListener('DOMContentLoaded', () => {
                     name: name.trim(),
                     date: new Date().toLocaleDateString()
                 }).then(() => renderMistakes());
+            }
+        } else if (activeSection.id === 'section-community') {
+            const name = prompt('请输入 AI 搭子姓名：');
+            if (name && name.trim()) {
+                const persona = prompt('请输入 AI 搭子的人设（例如：严厉的英语老师、温柔的学姐、热血的考研战友）：');
+                if (persona && persona.trim()) {
+                    saveCharacterToDB({
+                        name: name.trim(),
+                        persona: persona.trim(),
+                        avatar: '🤖',
+                        date: new Date().toLocaleDateString()
+                    }).then(() => renderCharacterList());
+                }
             }
         } else {
             fileInput.click();
@@ -439,16 +543,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 return `[[IMG_${images.length - 1}]]`;
             });
 
-            const prompt = `你是一个背书助手。请分析以下内容，找出其中需要背诵的关键知识点，并将其用 {{内容}} 的格式包裹起来。
-            要求：
-            1. 必须保留所有的 [[IMG_N]] 占位符且位置不变。
-            2. 必须包含原文的【全部内容】，严禁删减或概括。
-            3. 不要改变原文内容，只是将重点词汇或短语用双大括号包裹。
-            4. 保持 HTML 结构完整。
-            5. 只返回处理后的内容。
-            
-            内容：
-            ${placeholderHTML.substring(0, 15000)}`;
+            const prompt = `作为背书助手，请在原文中找出关键知识点并用{{内容}}包裹。要求：1.保留[[IMG_N]]占位符和HTML结构。2.包含全部原文，严禁删减。3.仅返回处理后的内容。内容：${placeholderHTML.substring(0, 10000)}`;
 
             const response = await fetch(`${config.url}/chat/completions`, {
                 method: 'POST',
@@ -459,7 +554,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 body: JSON.stringify({
                     model: config.model,
                     messages: [{ role: 'user', content: prompt }],
-                    temperature: 0.7
+                    temperature: 0
                 })
             });
 
@@ -631,16 +726,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         try {
             const textToAnalyze = viewerBody.innerText.substring(0, 4000);
-            const prompt = `请根据以下材料，生成一个思维导图的 HTML 结构。
-            要求：
-            1. 使用 <ul> 和 <li> 嵌套结构。
-            2. 根节点是文件名：${currentOpenFile.name}。
-            3. 提取核心概念、分支和细节。
-            4. 样式简洁，只返回 <ul> 及其内部内容。
-            5. 每个 <li> 的文本内容必须包裹在 <span> 标签中，例如：<li><span>核心概念</span><ul>...</ul></li>。
-            
-            材料内容：
-            ${textToAnalyze}`;
+            const prompt = `根据材料生成思维导图HTML(ul/li结构)。要求：1.根节点为${currentOpenFile.name}。2.li内容须包裹在span中。3.仅返回ul部分。材料：${textToAnalyze}`;
 
             const response = await fetch(`${config.url}/chat/completions`, {
                 method: 'POST',
@@ -651,7 +737,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 body: JSON.stringify({
                     model: config.model,
                     messages: [{ role: 'user', content: prompt }],
-                    temperature: 0.7
+                    temperature: 0
                 })
             });
 
@@ -676,62 +762,72 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     };
 
-    // AI 朗读功能
+    // AI 朗读功能 (带兼容性备选方案)
     let synth = window.speechSynthesis;
-    let utterance = null;
+    let audioPlayer = new Audio(); 
 
     document.getElementById('btn-read').onclick = () => {
         if (!currentOpenFile || currentOpenFile.type === 'image') return;
         
-        if (synth.speaking) {
+        if (synth.speaking || !audioPlayer.paused) {
             synth.cancel();
+            audioPlayer.pause();
+            audioPlayer.src = "";
+            resetReadBtn();
             return;
         }
 
-        let textToRead = "";
-        const isChapter = currentOpenFile.currentChapterIndex !== null && currentOpenFile.currentChapterIndex !== undefined;
-        
-        if (isChapter) {
-            const ch = currentOpenFile.chapters[currentOpenFile.currentChapterIndex];
-            textToRead = ch.clozeContent ? ch.clozeContent : viewerBody.innerHTML;
-        } else {
-            textToRead = currentOpenFile.clozeContent ? currentOpenFile.clozeContent : viewerBody.innerHTML;
-        }
-
-        // 1. 移除挖空标记，保留内容
-        textToRead = textToRead.replace(/\{\{(.*?)\}\}/g, '$1');
-        // 2. 移除所有 HTML 标签
-        textToRead = textToRead.replace(/<[^>]+>/g, ' ');
-        // 3. 移除图片占位符文本，防止读出“方括号”
-        textToRead = textToRead.replace(/\[\[IMG_\d+\]\]/g, '');
-        textToRead = textToRead.replace(/\[\[IMAGE_PLACEHOLDER_\d+\]\]/g, '');
-        // 4. 清理多余空格和换行
-        textToRead = textToRead.replace(/\s+/g, ' ').trim();
-
+        let textToRead = getCleanTextToRead();
         if (!textToRead) {
             alert('没有可朗读的文本内容');
             return;
         }
 
-        utterance = new SpeechSynthesisUtterance(textToRead);
-        utterance.lang = 'zh-CN';
-        utterance.rate = 1.0;
-        
         const btn = document.getElementById('btn-read');
-        const originalHTML = btn.innerHTML;
-        
-        utterance.onstart = () => {
-            btn.innerHTML = '<div class="action-icon">⏹️</div><span>停止</span>';
-            btn.classList.add('active');
-        };
-        
-        utterance.onend = () => {
-            btn.innerHTML = originalHTML;
-            btn.classList.remove('active');
-        };
+        btn.innerHTML = '<div class="action-icon">⏹️</div><span>停止</span>';
+        btn.classList.add('active');
 
-        synth.speak(utterance);
+        if (window.speechSynthesis && SpeechSynthesisUtterance) {
+            const utterance = new SpeechSynthesisUtterance(textToRead.substring(0, 3000));
+            utterance.lang = 'zh-CN';
+            utterance.onend = resetReadBtn;
+            utterance.onerror = () => fallbackRead(textToRead);
+            synth.speak(utterance);
+        } else {
+            fallbackRead(textToRead);
+        }
     };
+
+    function getCleanTextToRead() {
+        let text = "";
+        const isChapter = currentOpenFile.currentChapterIndex !== null && currentOpenFile.currentChapterIndex !== undefined;
+        if (isChapter) {
+            const ch = currentOpenFile.chapters[currentOpenFile.currentChapterIndex];
+            text = ch.clozeContent ? ch.clozeContent : viewerBody.innerHTML;
+        } else {
+            text = currentOpenFile.clozeContent ? currentOpenFile.clozeContent : viewerBody.innerHTML;
+        }
+        return text.replace(/\{\{(.*?)\}\}/g, '$1')
+                   .replace(/<[^>]+>/g, ' ')
+                   .replace(/\[\[IMG_\d+\]\]/g, '')
+                   .replace(/\s+/g, ' ').trim();
+    }
+
+    function resetReadBtn() {
+        const btn = document.getElementById('btn-read');
+        btn.innerHTML = '<div class="action-icon">🔊</div><span>AI朗读</span>';
+        btn.classList.remove('active');
+    }
+
+    function fallbackRead(text) {
+        const shortText = text.substring(0, 500);
+        audioPlayer.src = `https://dict.youdao.com/dictvoice?audio=${encodeURIComponent(shortText)}&le=zh`;
+        audioPlayer.play().catch(e => {
+            alert('当前浏览器不支持语音功能，请尝试更换 Chrome 或 Edge 浏览器');
+            resetReadBtn();
+        });
+        audioPlayer.onended = resetReadBtn;
+    }
 
     // AI 出题功能
     const quizViewer = document.getElementById('quiz-viewer');
@@ -790,24 +886,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 textToAnalyze = viewerBody.innerText.substring(0, 2000);
             }
 
-            const prompt = `你是一个老师。请根据以下学习材料，出 ${count} 道练习题（单选题或填空题）。
-            请严格按照以下 JSON 格式返回，不要有任何其他文字：
-            [
-              {
-                "type": "选择题",
-                "question": "题目内容",
-                "options": ["选项A", "选项B", "选项C", "选项D"],
-                "answer": "正确答案"
-              },
-              {
-                "type": "填空题",
-                "question": "题目内容，挖空处用 ___ 表示",
-                "answer": "正确答案"
-              }
-            ]
-            
-            材料内容：
-            ${textToAnalyze}`;
+            const prompt = `根据材料出${count}道练习题(单选或填空)。仅返回JSON数组: [{"type":"选择题","question":"..","options":[".."],"answer":".."},{"type":"填空题","question":"..___..","answer":".."}]。材料：${textToAnalyze}`;
 
             const response = await fetch(`${config.url}/chat/completions`, {
                 method: 'POST',
@@ -818,7 +897,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 body: JSON.stringify({
                     model: config.model,
                     messages: [{ role: 'user', content: prompt }],
-                    temperature: 0.7
+                    temperature: 0
                 })
             });
 
@@ -949,20 +1028,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 return `[[IMG_${images.length - 1}]]`;
             });
 
-            const prompt = `你是一个文档整理专家。请将以下内容划分为多个章节。
-            要求：
-            1. 必须保留所有的 [[IMG_N]] 占位符，且位置必须与原文逻辑一致。
-            2. 必须包含原文的【全部内容】，严禁删减或概括。
-            3. 如果原文中有明显的章节标题（如“第一章”、“一、”等），请务必按原标题拆分。
-            4. 如果没有明显标题，请按内容逻辑强行划分为 5-10 个章节，确保每个章节长度适中。
-            5. 严格按以下 JSON 格式返回，不要包含任何 Markdown 代码块标记：
-            [
-              {"title": "章节标题", "content": "该章节的完整内容（含 HTML 标签和占位符）"},
-              ...
-            ]
-            
-            内容：
-            ${placeholderHTML.substring(0, 20000)}`;
+            const prompt = `将内容划分为5-10个章节。要求：1.保留[[IMG_N]]占位符和HTML标签。2.包含全部原文。3.仅返回JSON数组: [{"title":"章节名", "content":"内容"}]。内容：${placeholderHTML.substring(0, 15000)}`;
 
             const response = await fetch(`${config.url}/chat/completions`, {
                 method: 'POST',
@@ -973,7 +1039,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 body: JSON.stringify({
                     model: config.model,
                     messages: [{ role: 'user', content: prompt }],
-                    temperature: 0.3
+                    temperature: 0
                 })
             });
 
@@ -1059,10 +1125,16 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // --- 闪卡功能 ---
     function generateFlashcards(file) {
-        showModal('选择生成范围', [
+        const options = [
             { label: '全篇内容', value: 'all' },
             { label: '前 2000 字', value: 'limit' }
-        ], (range) => {
+        ];
+        if (file.chapters) {
+            file.chapters.forEach((ch, idx) => {
+                options.push({ label: `章节：${ch.title}`, value: `chapter_${idx}` });
+            });
+        }
+        showModal('选择生成范围', options, (range) => {
             processFlashcardGeneration(file, range);
         });
     }
@@ -1084,16 +1156,19 @@ document.addEventListener('DOMContentLoaded', () => {
         btn.classList.add('loading');
 
         try {
-            let textToAnalyze = file.type === 'docx' ? file.content.replace(/<[^>]+>/g, '') : file.content;
-            textToAnalyze = textToAnalyze.substring(0, range === 'limit' ? 2000 : 6000);
+            let textToAnalyze = "";
+            if (range === 'all') {
+                textToAnalyze = file.type === 'docx' ? file.content.replace(/<[^>]+>/g, '') : file.content;
+                textToAnalyze = textToAnalyze.substring(0, 6000);
+            } else if (range === 'limit') {
+                textToAnalyze = file.type === 'docx' ? file.content.replace(/<[^>]+>/g, '') : file.content;
+                textToAnalyze = textToAnalyze.substring(0, 2000);
+            } else if (range.startsWith('chapter_')) {
+                const idx = parseInt(range.split('_')[1]);
+                textToAnalyze = file.chapters[idx].content.replace(/<[^>]+>/g, '');
+            }
 
-            const prompt = `请根据以下材料，制作 5-8 张闪卡。每张闪卡包含“正面”（问题或概念）和“反面”（答案或解释）。
-            请严格按照以下 JSON 格式返回，不要包含任何 Markdown 标记：
-            [
-              {"front": "正面内容", "back": "反面内容"},
-              ...
-            ]
-            材料：${textToAnalyze}`;
+            const prompt = `根据材料制作5-8张闪卡。仅返回JSON数组: [{"front":"..","back":".."}]。材料：${textToAnalyze}`;
 
             const response = await fetch(`${config.url}/chat/completions`, {
                 method: 'POST',
@@ -1104,7 +1179,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 body: JSON.stringify({
                     model: config.model,
                     messages: [{ role: 'user', content: prompt }],
-                    temperature: 0.7
+                    temperature: 0
                 })
             });
 
@@ -1204,6 +1279,32 @@ document.addEventListener('DOMContentLoaded', () => {
     cardFlipMain.onclick = () => {
         cardFlipMain.classList.toggle('flipped');
     };
+
+    // 闪卡滑动切换功能
+    let cardTouchStartX = 0;
+    let cardTouchEndX = 0;
+
+    cardFlipMain.addEventListener('touchstart', e => {
+        cardTouchStartX = e.changedTouches[0].screenX;
+    }, { passive: true });
+
+    cardFlipMain.addEventListener('touchend', e => {
+        cardTouchEndX = e.changedTouches[0].screenX;
+        const swipeThreshold = 50;
+        if (cardTouchEndX < cardTouchStartX - swipeThreshold) {
+            // 向左滑 -> 下一张
+            if (currentCardIndex < currentSessionCards.length - 1) {
+                currentCardIndex++;
+                updateCardDisplay();
+            }
+        } else if (cardTouchEndX > cardTouchStartX + swipeThreshold) {
+            // 向右滑 -> 上一张
+            if (currentCardIndex > 0) {
+                currentCardIndex--;
+                updateCardDisplay();
+            }
+        }
+    }, { passive: true });
 
     prevCardBtn.onclick = (e) => {
         e.stopPropagation();
@@ -1423,6 +1524,353 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     };
 
+    // --- 5. AI 搭子逻辑 ---
+    const characterListContainer = document.getElementById('character-list-container');
+    const charactersEmpty = document.getElementById('characters-empty');
+    const chatViewer = document.getElementById('chat-viewer');
+    const closeChat = document.getElementById('close-chat');
+    const chatCharacterName = document.getElementById('chat-character-name');
+    const chatMessages = document.getElementById('chat-messages');
+    const chatInput = document.getElementById('chat-input');
+    const btnSendChat = document.getElementById('btn-send-chat');
+    const btnAiReply = document.getElementById('btn-ai-reply');
+    const btnClearChat = document.getElementById('btn-clear-chat');
+    const btnToggleAction = document.getElementById('btn-toggle-action');
+    const avatarInput = document.getElementById('avatar-input');
+
+    let currentChatCharacter = null;
+    let isActionEnabled = false;
+
+    // 动描开关逻辑
+    btnToggleAction.onclick = () => {
+        isActionEnabled = !isActionEnabled;
+        btnToggleAction.classList.toggle('active', isActionEnabled);
+        btnToggleAction.textContent = `动描: ${isActionEnabled ? '开' : '关'}`;
+    };
+
+    // 更换头像逻辑
+    avatarInput.onchange = (e) => {
+        const file = e.target.files[0];
+        if (!file || !currentChatCharacter) return;
+
+        const reader = new FileReader();
+        reader.onload = (event) => {
+            const base64 = event.target.result;
+            currentChatCharacter.avatar = base64;
+            saveCharacterToDB(currentChatCharacter).then(() => {
+                renderCharacterList();
+                // 更新当前聊天窗口的头像（如果有显示的话，目前是 emoji）
+                alert('头像更换成功！');
+            });
+        };
+        reader.readAsDataURL(file);
+    };
+
+    // 处理社区连线逻辑
+    function initCommunityConnect() {
+        document.querySelectorAll('#community-list .follow-btn').forEach(btn => {
+            btn.onclick = () => {
+                const card = btn.closest('.community-card');
+                const name = card.querySelector('.user-name').childNodes[0].textContent.trim();
+                const avatar = card.querySelector('.user-avatar').textContent;
+                const tag = card.querySelector('.tag').textContent;
+                const status = card.querySelector('.user-status').textContent;
+                
+                const persona = `你是一个${tag}领域的学习搭子，目前${status}。你的性格非常积极向上。`;
+                
+                saveCharacterToDB({
+                    name: name,
+                    persona: persona,
+                    avatar: avatar,
+                    date: new Date().toLocaleDateString()
+                }).then(() => {
+                    renderCharacterList();
+                    btn.textContent = '已连线';
+                    btn.disabled = true;
+                    btn.style.background = '#ccc';
+                    alert(`已成功连线搭子：${name}，快去“我的搭子”里找它聊天吧！`);
+                });
+            };
+        });
+    }
+
+    async function renderCharacterList() {
+        const characters = await loadCharactersFromDB();
+        
+        if (characters.length === 0) {
+            characterListContainer.style.display = 'none';
+            charactersEmpty.style.display = 'flex';
+            return;
+        }
+
+        characterListContainer.style.display = 'flex';
+        charactersEmpty.style.display = 'none';
+        characterListContainer.innerHTML = '';
+
+        characters.forEach(char => {
+            const card = document.createElement('div');
+            card.className = 'community-card';
+            
+            let avatarHtml = char.avatar && char.avatar.startsWith('data:image') 
+                ? `<img src="${char.avatar}" alt="avatar">` 
+                : (char.avatar || '🤖');
+
+            card.innerHTML = `
+                <div class="user-avatar" title="点击更换头像">${avatarHtml}</div>
+                <div class="user-info">
+                    <div class="user-name">${char.name} <span class="tag">AI 搭子</span></div>
+                </div>
+                <div style="display:flex; gap:8px; flex-wrap: wrap; justify-content: flex-end;">
+                    <button class="follow-btn chat-btn">聊天</button>
+                    <button class="follow-btn edit-persona-btn" style="background:#5AC8FA;">人设</button>
+                    <button class="follow-btn delete-char-btn" style="background:#FF3B30;">删除</button>
+                </div>
+            `;
+
+            card.querySelector('.user-avatar').onclick = () => {
+                currentChatCharacter = char;
+                avatarInput.click();
+            };
+
+            card.querySelector('.chat-btn').onclick = () => openChat(char);
+            card.querySelector('.edit-persona-btn').onclick = () => {
+                // 使用自定义弹窗以支持更大的编辑区域
+                const overlay = document.createElement('div');
+                overlay.className = 'modal-overlay';
+                overlay.style.display = 'flex';
+                overlay.innerHTML = `
+                    <div class="modal-content persona-modal-content">
+                        <h3 class="modal-title">编辑角色人设</h3>
+                        <textarea class="edit-area" id="edit-persona-text">${char.persona}</textarea>
+                        <div class="edit-actions">
+                            <button class="primary-btn" id="save-persona-btn">保存</button>
+                            <button class="secondary-btn" id="cancel-persona-btn">取消</button>
+                        </div>
+                    </div>
+                `;
+                document.body.appendChild(overlay);
+
+                overlay.querySelector('#save-persona-btn').onclick = () => {
+                    const newPersona = overlay.querySelector('#edit-persona-text').value.trim();
+                    if (newPersona) {
+                        char.persona = newPersona;
+                        saveCharacterToDB(char).then(() => {
+                            renderCharacterList();
+                            document.body.removeChild(overlay);
+                        });
+                    }
+                };
+                overlay.querySelector('#cancel-persona-btn').onclick = () => {
+                    document.body.removeChild(overlay);
+                };
+            };
+            card.querySelector('.delete-char-btn').onclick = () => {
+                if (confirm(`确定要删除搭子 ${char.name} 吗？`)) {
+                    deleteCharacterFromDB(char.id).then(() => renderCharacterList());
+                }
+            };
+
+            characterListContainer.appendChild(card);
+        });
+    }
+
+    async function openChat(character) {
+        currentChatCharacter = character;
+        chatCharacterName.textContent = character.name;
+        chatMessages.innerHTML = '';
+        
+        try {
+            const history = await loadChatMessagesFromDB(character.id);
+            if (!history || history.length === 0) {
+                // 初始欢迎语
+                const welcomeMsg = {
+                    charId: character.id,
+                    role: 'ai',
+                    text: `你好！我是你的学习搭子 ${character.name}。今天准备背诵点什么？`,
+                    date: new Date().getTime()
+                };
+                addMessage('ai', welcomeMsg.text);
+                saveChatMessageToDB(welcomeMsg);
+            } else {
+                // 按时间排序确保顺序正确
+                history.sort((a, b) => a.date - b.date).forEach(msg => addMessage(msg.role, msg.text, false));
+            }
+        } catch (err) {
+            console.error("加载聊天记录失败:", err);
+            addMessage('ai', "加载历史记录时出错了，但我们可以开始新的对话。");
+        }
+        
+        chatViewer.style.display = 'flex';
+        // 多次尝试滚动以确保在图片或复杂布局渲染后到达底部
+        setTimeout(() => {
+            chatMessages.scrollTop = chatMessages.scrollHeight;
+        }, 50);
+        requestAnimationFrame(() => {
+            chatMessages.scrollTop = chatMessages.scrollHeight;
+        });
+    }
+
+    closeChat.onclick = () => {
+        chatViewer.style.display = 'none';
+        currentChatCharacter = null;
+    };
+
+    btnClearChat.onclick = () => {
+        if (!currentChatCharacter) return;
+        if (confirm(`确定要清空与 ${currentChatCharacter.name} 的聊天记录吗？`)) {
+            clearChatMessagesFromDB(currentChatCharacter.id).then(() => {
+                chatMessages.innerHTML = '';
+                const welcomeMsg = {
+                    charId: currentChatCharacter.id,
+                    role: 'ai',
+                    text: `记录已清空。我是你的学习搭子 ${currentChatCharacter.name}，我们重新开始吧！`,
+                    date: new Date().getTime()
+                };
+                addMessage('ai', welcomeMsg.text);
+                saveChatMessageToDB(welcomeMsg);
+            });
+        }
+    };
+
+    function addMessage(role, text, scroll = true) {
+        const msg = document.createElement('div');
+        msg.className = `message ${role}`;
+        msg.textContent = text;
+        chatMessages.appendChild(msg);
+        if (scroll) {
+            requestAnimationFrame(() => {
+                chatMessages.scrollTop = chatMessages.scrollHeight;
+            });
+        }
+    }
+
+    btnSendChat.onclick = sendMessage;
+    btnAiReply.onclick = () => sendMessage(true);
+    chatInput.onkeypress = (e) => { if (e.key === 'Enter') sendMessage(); };
+
+    async function sendMessage(isAiTriggered = false) {
+        const text = chatInput.value.trim();
+        if (!currentChatCharacter) return;
+        
+        // 逻辑：如果有输入文字，无论是否点击信封，都先作为用户消息处理
+        if (text) {
+            addMessage('user', text);
+            await saveChatMessageToDB({
+                charId: currentChatCharacter.id,
+                role: 'user',
+                text: text,
+                date: new Date().getTime()
+            });
+            chatInput.value = '';
+        } else if (!isAiTriggered) {
+            // 没有文字且不是手动触发 AI，则不执行
+            return;
+        }
+
+        const config = JSON.parse(localStorage.getItem('apiConfig'));
+        if (!config || !config.url || !config.key) {
+            if (!text && isAiTriggered) {
+                addMessage('ai', '请先在设置中配置 AI API，我才能和你聊天哦。');
+            }
+            return;
+        }
+
+        // 显示加载状态
+        const loadingMsg = document.createElement('div');
+        loadingMsg.className = 'message ai loading';
+        loadingMsg.textContent = '正在思考...';
+        chatMessages.appendChild(loadingMsg);
+        chatMessages.scrollTop = chatMessages.scrollHeight;
+
+        try {
+            // 获取历史记录作为上下文
+            const history = await loadChatMessagesFromDB(currentChatCharacter.id);
+            // 取最近的 15 条消息以获得更丰富的上下文
+            const recentHistory = history.slice(-15);
+            
+            let actionInstruction = isActionEnabled 
+                ? "【风格要求】在回复中加入生动的动作描写和神态描写（必须用括号包裹，例如：(微微一笑，推了推眼镜)），增加代入感。" 
+                : "【绝对禁令：严禁描写】\n1. 严禁输出任何括号 ()、[]、{} 及其中的内容。\n2. 严禁输出任何动作描写、神态描写或心理描写。\n3. 严禁使用 *星号* 包裹的动作。\n4. 你的回复中【禁止出现任何括号字符】。如果你想表达情绪，请通过文字语气表达，而不是描写动作。";
+
+            const systemPrompt = `你现在的身份是：${currentChatCharacter.persona}。你的名字叫${currentChatCharacter.name}。
+            你正在与用户进行【纯文字】线上聊天。
+            
+            ${actionInstruction}
+            
+            【回复规范】
+            - 仅输出对话台词，严禁任何旁白。
+            - 每次回复必须严格保持在 3 到 5 个句子之间。
+            - 模拟真实人类在微信/QQ上的聊天习惯，直接、自然。
+            
+            【错误示例】(❌禁止出现): 刚才在忙呢 (抬头看了一眼窗外) 你怎么突然找我了？
+            【正确示例】(✅必须这样): 刚才在忙呢，正处理一些文件。你怎么突然找我了？是不是遇到什么难题了？`;
+
+            const apiMessages = [
+                { role: 'system', content: systemPrompt }
+            ];
+
+            recentHistory.forEach(msg => {
+                apiMessages.push({
+                    role: msg.role === 'ai' ? 'assistant' : 'user',
+                    content: msg.text
+                });
+            });
+
+            const response = await fetch(`${config.url}/chat/completions`, {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${config.key}`,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    model: config.model,
+                    messages: apiMessages,
+                    temperature: 0.7
+                })
+            });
+
+            chatMessages.removeChild(loadingMsg);
+
+            if (!response.ok) throw new Error('AI 响应失败');
+            const data = await response.json();
+            const aiReplyRaw = data.choices[0].message.content;
+            
+            // 兜底过滤：如果动描关闭，物理移除所有括号及其内容
+            let aiReply = aiReplyRaw;
+            if (!isActionEnabled) {
+                let previousReply;
+                // 循环过滤以处理嵌套括号情况
+                do {
+                    previousReply = aiReply;
+                    // 移除所有成对的括号及其内容 (支持中英文、方括号、花括号)
+                    // 使用更严谨的排除型正则，防止跨行匹配错误
+                    aiReply = aiReply.replace(/[\(\（\[【\{][^\(\（\[【\{\)\）\]】\}]*?[\)\）\]】\}]/g, '');
+                } while (aiReply !== previousReply);
+
+                // 移除所有星号包裹的内容 (常见的动作描写方式)
+                aiReply = aiReply.replace(/\*.*?\*/g, '');
+                // 移除任何残留的孤立括号字符
+                aiReply = aiReply.replace(/[\(\（\[【\{\)\）\]】\}]/g, '');
+                // 清理多余空格、换行及连续标点
+                aiReply = aiReply.replace(/\s+/g, ' ').replace(/([。！？，])\1+/g, '$1').trim();
+                
+                // 如果过滤后变为空（极端情况），则保留原样
+                if (!aiReply || aiReply.length < 2) aiReply = aiReplyRaw.replace(/[\(\（\[【\{\)\）\]】\}]/g, '');
+            }
+            
+            addMessage('ai', aiReply);
+            await saveChatMessageToDB({
+                charId: currentChatCharacter.id,
+                role: 'ai',
+                text: aiReply,
+                date: new Date().getTime()
+            });
+        } catch (error) {
+            if (chatMessages.contains(loadingMsg)) chatMessages.removeChild(loadingMsg);
+            addMessage('ai', '抱歉，我刚才走神了，请再说一遍？(错误: ' + error.message + ')');
+        }
+    }
+
     // --- 4. AI API 配置逻辑 ---
     const apiUrlInput = document.getElementById('api-url');
     const apiKeyInput = document.getElementById('api-key');
@@ -1467,7 +1915,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     saveApiBtn.addEventListener('click', () => {
         const config = { url: apiUrlInput.value.trim(), key: apiKeyInput.value.trim(), model: apiModelSelect.value };
-        if (!config.url || !config.key) { alert('请填写完整的 API 信息'); return; }
+        if (!config.url || !config.key) { alert('填写完整的 API 信息'); return; }
         localStorage.setItem('apiConfig', JSON.stringify(config));
         alert('配置已保存！');
     });
