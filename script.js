@@ -14,6 +14,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // 耳返相关
     const earReturnViewer = document.getElementById('ear-return-viewer');
     const closeEarReturn = document.getElementById('close-ear-return');
+    const minimizeEarReturn = document.getElementById('minimize-ear-return');
     const earReturnStatus = document.getElementById('ear-return-status');
     const btnToggleEarReturn = document.getElementById('btn-toggle-ear-return');
     const pulseRing = document.querySelector('.pulse-ring');
@@ -1519,6 +1520,11 @@ document.addEventListener('DOMContentLoaded', () => {
     closeEarReturn.onclick = async () => {
         await stopEarReturn();
         earReturnViewer.style.display = 'none';
+        earReturnViewer.classList.remove('minimized');
+    };
+
+    minimizeEarReturn.onclick = () => {
+        earReturnViewer.classList.toggle('minimized');
     };
 
     btnToggleEarReturn.onclick = async () => {
