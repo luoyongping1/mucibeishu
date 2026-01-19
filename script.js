@@ -10,7 +10,21 @@ document.addEventListener('DOMContentLoaded', () => {
     const closeViewer = document.getElementById('close-viewer');
     const viewerTitle = document.getElementById('viewer-title');
     const viewerBody = document.getElementById('viewer-body');
-    
+
+    // 耳返相关
+    const earReturnViewer = document.getElementById('ear-return-viewer');
+    const closeEarReturn = document.getElementById('close-ear-return');
+    const earReturnStatus = document.getElementById('ear-return-status');
+    const btnToggleEarReturn = document.getElementById('btn-toggle-ear-return');
+    const pulseRing = document.querySelector('.pulse-ring');
+
+    // 粘贴弹窗相关
+    const pasteModal = document.getElementById('paste-modal');
+    const pasteFileName = document.getElementById('paste-file-name');
+    const pasteArea = document.getElementById('paste-area');
+    const btnConfirmPaste = document.getElementById('btn-confirm-paste');
+    const btnCancelPaste = document.getElementById('btn-cancel-paste');
+
     const clozeToolbar = document.getElementById('cloze-toolbar');
     const chapterSidebar = document.getElementById('chapter-sidebar');
     const chapterList = document.getElementById('chapter-list');
@@ -349,9 +363,40 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
             }
         } else {
-            fileInput.click();
+            showModal('上传文件', [
+                { label: '📁 选择本地文件', value: 'upload' },
+                { label: '✍️ 粘贴文本内容', value: 'paste' }
+            ], (choice) => {
+                if (choice === 'upload') {
+                    fileInput.click();
+                } else if (choice === 'paste') {
+                    pasteModal.style.display = 'flex';
+                    pasteFileName.value = '';
+                    pasteArea.value = '';
+                }
+            });
         }
     });
+
+    btnCancelPaste.onclick = () => pasteModal.style.display = 'none';
+    btnConfirmPaste.onclick = () => {
+        const text = pasteArea.value.trim();
+        const name = pasteFileName.value.trim() || '未命名文本';
+        if (!text) { alert('请输入内容'); return; }
+        
+        const newFile = {
+            id: Date.now() + Math.random(),
+            name: name + '.txt',
+            size: (new Blob([text]).size / 1024).toFixed(1) + ' KB',
+            type: 'text',
+            content: text,
+            date: new Date().toLocaleDateString()
+        };
+        uploadedFiles.push(newFile);
+        saveFileToDB(newFile);
+        renderFileList();
+        pasteModal.style.display = 'none';
+    };
 
     fileInput.addEventListener('change', (e) => {
         const files = Array.from(e.target.files);
@@ -433,6 +478,9 @@ document.addEventListener('DOMContentLoaded', () => {
                     <span class="file-name">${file.name}</span>
                     <span class="file-meta">${file.date} · ${file.size}</span>
                 </div>
+                <div class="file-edit-btn" onclick="event.stopPropagation(); renameFile(${file.id}, '${file.name}')">
+                    <svg viewBox="0 0 24 24" width="18" height="18"><path fill="currentColor" d="M20.71,7.04C21.1,6.65 21.1,6 20.71,5.63L18.37,3.29C18,2.9 17.35,2.9 16.96,3.29L15.12,5.12L18.87,8.87M3,17.25V21H6.75L17.81,9.93L14.06,6.18L3,17.25Z" /></svg>
+                </div>
                 <div class="file-delete-btn" onclick="event.stopPropagation(); deleteFile(${file.id})">
                     <svg viewBox="0 0 24 24" width="20" height="20"><path fill="currentColor" d="M19,4H15.5L14.5,3H9.5L8.5,4H5V6H19V4M6,19A2,2 0 0,0 8,21H16A2,2 0 0,0 18,19V7H6V19Z" /></svg>
                 </div>
@@ -456,6 +504,23 @@ document.addEventListener('DOMContentLoaded', () => {
                 flashcardBoxes = flashcardBoxes.filter(b => b.fileId != fileId);
                 renderFileList();
                 renderCardBoxes();
+            };
+        }
+    };
+
+    window.renameFile = (fileId, oldName) => {
+        const newName = prompt('请输入新的文件名：', oldName);
+        if (newName && newName.trim() && newName !== oldName) {
+            const transaction = db.transaction([storeName], "readwrite");
+            const store = transaction.objectStore(storeName);
+            store.get(fileId).onsuccess = (e) => {
+                const file = e.target.result;
+                file.name = newName.trim();
+                store.put(file).onsuccess = () => {
+                    const idx = uploadedFiles.findIndex(f => f.id == fileId);
+                    if (idx > -1) uploadedFiles[idx].name = file.name;
+                    renderFileList();
+                };
             };
         }
     };
@@ -518,7 +583,7 @@ document.addEventListener('DOMContentLoaded', () => {
         document.querySelectorAll('.cloze-blank').forEach(b => b.classList.remove('delete-mode'));
     };
 
-    document.getElementById('btn-ai-cloze').onclick = async () => {
+    async function performAICloze() {
         if (!currentOpenFile || currentOpenFile.type === 'image') {
             alert('当前文件类型不支持挖空');
             return;
@@ -535,7 +600,6 @@ document.addEventListener('DOMContentLoaded', () => {
         btn.innerHTML = '⏳ 分析中...';
 
         try {
-            // 使用 innerHTML 以保留图片占位，但同样使用占位符防止 base64 干扰
             let rawHTML = viewerBody.innerHTML;
             const images = [];
             const placeholderHTML = rawHTML.replace(/<img [^>]*src=['"]([^'"]+)['"][^>]*>/g, (match) => {
@@ -543,7 +607,12 @@ document.addEventListener('DOMContentLoaded', () => {
                 return `[[IMG_${images.length - 1}]]`;
             });
 
-            const prompt = `作为背书助手，请在原文中找出关键知识点并用{{内容}}包裹。要求：1.保留[[IMG_N]]占位符和HTML结构。2.包含全部原文，严禁删减。3.仅返回处理后的内容。内容：${placeholderHTML.substring(0, 10000)}`;
+            const prompt = `你是一个背书专家。请在提供的HTML文本中识别核心考点、定义、关键数据或结论，并用{{内容}}包裹。
+            【规则】
+            1. 严禁删减或修改原文任何字符，必须保持HTML结构和[[IMG_N]]占位符原封不动。
+            2. 挖空密度适中（每100字约3-5处）。
+            3. 仅输出处理后的全文，不要任何解释。
+            内容：${placeholderHTML.substring(0, 10000)}`;
 
             const response = await fetch(`${config.url}/chat/completions`, {
                 method: 'POST',
@@ -562,7 +631,6 @@ document.addEventListener('DOMContentLoaded', () => {
             const data = await response.json();
             let aiResult = data.choices[0].message.content;
 
-            // 还原图片
             images.forEach((imgTag, index) => {
                 aiResult = aiResult.split(`[[IMG_${index}]]`).join(imgTag);
             });
@@ -580,7 +648,9 @@ document.addEventListener('DOMContentLoaded', () => {
         } finally {
             btn.innerHTML = originalText;
         }
-    };
+    }
+
+    document.getElementById('btn-ai-cloze').onclick = performAICloze;
 
     document.getElementById('btn-manual-cloze').onclick = () => {
         if (!currentOpenFile || currentOpenFile.type === 'image') return;
@@ -711,7 +781,7 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     };
 
-    btnRegenMindmap.onclick = async () => {
+    async function performRegenMindmap() {
         if (!currentOpenFile) return;
         
         const config = JSON.parse(localStorage.getItem('apiConfig'));
@@ -726,7 +796,14 @@ document.addEventListener('DOMContentLoaded', () => {
 
         try {
             const textToAnalyze = viewerBody.innerText.substring(0, 4000);
-            const prompt = `根据材料生成思维导图HTML(ul/li结构)。要求：1.根节点为${currentOpenFile.name}。2.li内容须包裹在span中。3.仅返回ul部分。材料：${textToAnalyze}`;
+            const prompt = `请根据以下材料提取逻辑框架，生成思维导图。
+            【要求】
+            1. 使用 <ul> 和 <li> 嵌套结构。
+            2. 根节点名称为：${currentOpenFile.name}。
+            3. 所有文字必须包裹在 <span> 标签内。
+            4. 逻辑层级清晰，涵盖所有核心章节。
+            5. 仅返回 <ul> 开始的HTML代码。
+            材料：${textToAnalyze}`;
 
             const response = await fetch(`${config.url}/chat/completions`, {
                 method: 'POST',
@@ -748,7 +825,6 @@ document.addEventListener('DOMContentLoaded', () => {
             const htmlMatch = aiResult.match(/<ul[\s\S]*<\/ul>/);
             let finalHtml = htmlMatch ? htmlMatch[0] : `<ul><li><span>${aiResult}</span></li></ul>`;
             
-            // 兜底处理：如果 AI 没加 span，我们尝试补上
             if (!finalHtml.includes('<span>')) {
                 finalHtml = finalHtml.replace(/<li>([^<]+)/g, '<li><span>$1</span>');
             }
@@ -760,7 +836,9 @@ document.addEventListener('DOMContentLoaded', () => {
             btnRegenMindmap.disabled = false;
             btnRegenMindmap.textContent = '重新生成';
         }
-    };
+    }
+
+    btnRegenMindmap.onclick = performRegenMindmap;
 
     // AI 朗读功能 (带兼容性备选方案)
     let synth = window.speechSynthesis;
@@ -834,6 +912,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const quizDisplayBody = document.getElementById('quiz-display-body');
     const quizTypeTitle = document.getElementById('quiz-type-title');
     const closeQuiz = document.getElementById('close-quiz');
+    const btnRegenQuiz = document.getElementById('btn-regen-quiz');
 
     closeQuiz.onclick = () => {
         quizViewer.style.display = 'none';
@@ -842,6 +921,12 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('btn-quiz').onclick = () => {
         if (!currentOpenFile || currentOpenFile.type === 'image') {
             alert('当前文件类型不支持出题');
+            return;
+        }
+
+        // 如果已有保存的题目，直接显示
+        if (currentOpenFile.quizzes && currentOpenFile.quizzes.length > 0) {
+            renderQuizPage(currentOpenFile.quizzes);
             return;
         }
 
@@ -854,6 +939,27 @@ document.addEventListener('DOMContentLoaded', () => {
 
         showModal('选择出题范围', options, (range) => {
             showModal('选择题目数量', [
+                { label: '5 道', value: 5 },
+                { label: '10 道', value: 10 },
+                { label: '15 道', value: 15 }
+            ], (count) => {
+                startQuizAI(range, count);
+            });
+        });
+    };
+
+    btnRegenQuiz.onclick = () => {
+        if (!currentOpenFile || currentOpenFile.type === 'image') return;
+        
+        const options = [{ label: '全篇内容', value: 'all' }];
+        if (currentOpenFile.chapters) {
+            currentOpenFile.chapters.forEach((ch, idx) => {
+                options.push({ label: `章节：${ch.title}`, value: `chapter_${idx}` });
+            });
+        }
+
+        showModal('重新生成：选择出题范围', options, (range) => {
+            showModal('重新生成：选择题目数量', [
                 { label: '5 道', value: 5 },
                 { label: '10 道', value: 10 },
                 { label: '15 道', value: 15 }
@@ -886,7 +992,13 @@ document.addEventListener('DOMContentLoaded', () => {
                 textToAnalyze = viewerBody.innerText.substring(0, 2000);
             }
 
-            const prompt = `根据材料出${count}道练习题(单选或填空)。仅返回JSON数组: [{"type":"选择题","question":"..","options":[".."],"answer":".."},{"type":"填空题","question":"..___..","answer":".."}]。材料：${textToAnalyze}`;
+            const prompt = `你是一个出题专家。请根据材料出${count}道高质量练习题。
+            【要求】
+            1. 题型包含“选择题”和“填空题”。
+            2. 考点覆盖全面，难度适中。
+            3. 严格按JSON格式返回数组，严禁包含Markdown代码块标识。
+            格式示例：[{"type":"选择题","question":"问题","options":["A","B","C","D"],"answer":"A"},{"type":"填空题","question":"问题___部分","answer":"答案"}]
+            材料：${textToAnalyze}`;
 
             const response = await fetch(`${config.url}/chat/completions`, {
                 method: 'POST',
@@ -911,6 +1023,10 @@ document.addEventListener('DOMContentLoaded', () => {
             } catch (e) {
                 throw new Error('AI 返回格式错误，请重试');
             }
+
+            // 保存题目到当前文件并持久化
+            currentOpenFile.quizzes = quizData;
+            saveFileToDB(currentOpenFile);
 
             renderQuizPage(quizData);
         } catch (error) {
@@ -1004,7 +1120,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // --- 章节划分逻辑 ---
-    document.getElementById('btn-divide-chapters').onclick = async () => {
+    async function performDivideChapters() {
         if (!currentOpenFile || currentOpenFile.type === 'image') return;
 
         const config = JSON.parse(localStorage.getItem('apiConfig'));
@@ -1018,17 +1134,19 @@ document.addEventListener('DOMContentLoaded', () => {
         btn.innerHTML = '<div class="action-icon">⏳</div><span>划分中...</span>';
 
         try {
-            // 始终从原始完整内容开始划分，确保不丢失图片和内容
             let rawHTML = currentOpenFile.content;
-            
-            // 1. 提取并替换图片占位符，防止 base64 撑爆上下文导致图片丢失
             const images = [];
             const placeholderHTML = rawHTML.replace(/<img [^>]*src=['"]([^'"]+)['"][^>]*>/g, (match) => {
                 images.push(match);
                 return `[[IMG_${images.length - 1}]]`;
             });
 
-            const prompt = `将内容划分为5-10个章节。要求：1.保留[[IMG_N]]占位符和HTML标签。2.包含全部原文。3.仅返回JSON数组: [{"title":"章节名", "content":"内容"}]。内容：${placeholderHTML.substring(0, 15000)}`;
+            const prompt = `请将以下长文本按逻辑结构划分为5-10个章节。
+            【要求】
+            1. 必须包含全部原文，严禁删减。
+            2. 保持HTML标签和[[IMG_N]]占位符完整。
+            3. 仅返回JSON数组格式：[{"title":"章节标题", "content":"该章节HTML内容"}]。
+            内容：${placeholderHTML.substring(0, 15000)}`;
 
             const response = await fetch(`${config.url}/chat/completions`, {
                 method: 'POST',
@@ -1049,7 +1167,6 @@ document.addEventListener('DOMContentLoaded', () => {
             const jsonMatch = aiContent.match(/\[[\s\S]*\]/);
             let chapters = JSON.parse(jsonMatch ? jsonMatch[0] : aiContent);
 
-            // 2. 还原图片：将占位符替换回原始的 <img> 标签
             chapters = chapters.map(ch => {
                 let restoredContent = ch.content;
                 images.forEach((imgTag, index) => {
@@ -1070,7 +1187,9 @@ document.addEventListener('DOMContentLoaded', () => {
         } finally {
             btn.innerHTML = originalHTML;
         }
-    };
+    }
+
+    document.getElementById('btn-divide-chapters').onclick = performDivideChapters;
 
     function renderChapterList() {
         chapterList.innerHTML = '';
@@ -1080,7 +1199,11 @@ document.addEventListener('DOMContentLoaded', () => {
         allItem.textContent = '显示全篇';
         allItem.onclick = () => {
             currentOpenFile.currentChapterIndex = null;
-            renderOriginalContent(currentOpenFile);
+            if (currentOpenFile.clozeContent) {
+                renderClozeText(currentOpenFile.clozeContent, false);
+            } else {
+                renderOriginalContent(currentOpenFile);
+            }
             closeChapterSidebar();
             updateActiveChapter(allItem);
         };
@@ -1168,7 +1291,22 @@ document.addEventListener('DOMContentLoaded', () => {
                 textToAnalyze = file.chapters[idx].content.replace(/<[^>]+>/g, '');
             }
 
-            const prompt = `根据材料制作5-8张闪卡。仅返回JSON数组: [{"front":"..","back":".."}]。材料：${textToAnalyze}`;
+            const prompt = `你是一个顶级的教育专家和记忆大师。请对提供的材料进行深度解析，并制作一套极其详尽的双面闪卡。
+            【核心目标】
+            必须覆盖材料中的“每一个”知识点、定义、关键细节、因果关系和重要事实。严禁遗漏任何细微的考点。
+            
+            【制作要求】
+            1. 颗粒度极细：不要将多个知识点挤在一张卡片上，应将其拆解为多个原子化的闪卡。
+            2. 数量要求：根据材料长度，制作 15-30 张闪卡（如果材料内容极多，请尽可能多地生成以确保全覆盖）。
+            3. 正面 (front)：简洁的问题、术语、填空或需要解释的关键词。
+            4. 背面 (back)：准确、详尽、逻辑清晰的答案或解释。
+            5. 独立性：每张闪卡必须能独立理解，不依赖其他卡片。
+            
+            【输出格式】
+            严格按 JSON 数组格式返回，严禁包含任何 Markdown 标识：[{"front":"正面内容","back":"背面内容"}]。
+            
+            材料内容：
+            ${textToAnalyze}`;
 
             const response = await fetch(`${config.url}/chat/completions`, {
                 method: 'POST',
@@ -1187,7 +1325,11 @@ document.addEventListener('DOMContentLoaded', () => {
             const data = await response.json();
             const content = data.choices[0].message.content.trim();
             const jsonMatch = content.match(/\[[\s\S]*\]/);
-            const cards = JSON.parse(jsonMatch ? jsonMatch[0] : content);
+            const cards = JSON.parse(jsonMatch ? jsonMatch[0] : content).map(c => ({
+                ...c,
+                level: 0,
+                lastReview: null
+            }));
 
             const newBox = {
                 fileId: file.id,
@@ -1225,11 +1367,18 @@ document.addEventListener('DOMContentLoaded', () => {
         flashcardBoxes.forEach(box => {
             const item = document.createElement('div');
             item.className = 'card-box';
+            
+            const masteredCount = box.cards.filter(c => (c.level || 0) >= 3).length;
+            const progress = Math.round((masteredCount / box.cards.length) * 100);
+
             item.innerHTML = `
                 <div class="card-box-delete" onclick="event.stopPropagation(); deleteFlashcardBox(${box.fileId})">×</div>
                 <div class="box-icon">📦</div>
                 <div class="box-name">${box.fileName}</div>
-                <div class="box-count">${box.cards.length} 张闪卡</div>
+                <div class="box-count">${box.cards.length} 张 · 掌握 ${progress}%</div>
+                <div class="card-progress-bar">
+                    <div class="card-progress-fill" style="width: ${progress}%"></div>
+                </div>
             `;
             item.onclick = () => startFlashcardSession(box);
             cardBoxList.appendChild(item);
@@ -1256,11 +1405,14 @@ document.addEventListener('DOMContentLoaded', () => {
     const cardTotalCount = document.getElementById('card-total-count');
     const prevCardBtn = document.getElementById('prev-card');
     const nextCardBtn = document.getElementById('next-card');
+    const cardFeedbackControls = document.getElementById('card-feedback-controls');
 
     let currentSessionCards = [];
     let currentCardIndex = 0;
+    let currentSessionBox = null;
 
     function startFlashcardSession(box) {
+        currentSessionBox = box;
         currentSessionCards = box.cards;
         currentCardIndex = 0;
         cardTotalCount.textContent = currentSessionCards.length;
@@ -1274,11 +1426,37 @@ document.addEventListener('DOMContentLoaded', () => {
         cardBackText.textContent = card.back;
         cardCurrentIndex.textContent = currentCardIndex + 1;
         cardFlipMain.classList.remove('flipped');
+        cardFeedbackControls.style.display = 'none';
     }
 
     cardFlipMain.onclick = () => {
-        cardFlipMain.classList.toggle('flipped');
+        const isFlipped = cardFlipMain.classList.toggle('flipped');
+        cardFeedbackControls.style.display = isFlipped ? 'grid' : 'none';
     };
+
+    document.querySelectorAll('.feedback-btn').forEach(btn => {
+        btn.onclick = (e) => {
+            e.stopPropagation();
+            const level = parseInt(btn.getAttribute('data-level'));
+            const card = currentSessionCards[currentCardIndex];
+            
+            card.level = level;
+            card.lastReview = new Date().getTime();
+            
+            saveFlashcardsToDB(currentSessionBox);
+            
+            if (currentCardIndex < currentSessionCards.length - 1) {
+                setTimeout(() => {
+                    currentCardIndex++;
+                    updateCardDisplay();
+                }, 300);
+            } else {
+                alert('本组闪卡已学习完毕！');
+                cardViewer.style.display = 'none';
+                renderCardBoxes();
+            }
+        };
+    });
 
     // 闪卡滑动切换功能
     let cardTouchStartX = 0;
@@ -1326,6 +1504,144 @@ document.addEventListener('DOMContentLoaded', () => {
 
     closeCardViewer.onclick = () => {
         cardViewer.style.display = 'none';
+        renderCardBoxes();
+    };
+
+    // --- 耳返逻辑实现 ---
+    let audioCtx = null;
+    let micStream = null;
+    let earReturnNode = null;
+
+    document.getElementById('btn-ear-return').onclick = () => {
+        earReturnViewer.style.display = 'flex';
+    };
+
+    closeEarReturn.onclick = async () => {
+        await stopEarReturn();
+        earReturnViewer.style.display = 'none';
+    };
+
+    btnToggleEarReturn.onclick = async () => {
+        if (micStream) {
+            await stopEarReturn();
+        } else {
+            await startEarReturn();
+        }
+    };
+
+    async function startEarReturn() {
+        try {
+            audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            micStream = await navigator.mediaDevices.getUserMedia({ 
+                audio: {
+                    echoCancellation: false,
+                    noiseSuppression: false,
+                    autoGainControl: false
+                } 
+            });
+            
+            const source = audioCtx.createMediaStreamSource(micStream);
+            earReturnNode = audioCtx.createGain();
+            earReturnNode.gain.value = 1.0;
+            
+            source.connect(earReturnNode);
+            earReturnNode.connect(audioCtx.destination);
+            
+            earReturnStatus.textContent = "耳返已开启";
+            earReturnStatus.style.color = "#34C759";
+            btnToggleEarReturn.textContent = "关闭耳返";
+            btnToggleEarReturn.style.background = "#FF3B30";
+            pulseRing.classList.add('active');
+        } catch (err) {
+            alert("开启耳返失败，请确保已授予麦克风权限并佩戴耳机：" + err.message);
+        }
+    }
+
+    async function stopEarReturn() {
+        if (micStream) {
+            micStream.getTracks().forEach(track => track.stop());
+            micStream = null;
+        }
+        if (audioCtx) {
+            await audioCtx.close();
+            audioCtx = null;
+        }
+        earReturnStatus.textContent = "准备就绪";
+        earReturnStatus.style.color = "#34C759";
+        btnToggleEarReturn.textContent = "开启耳返";
+        btnToggleEarReturn.style.background = "var(--primary-color)";
+        pulseRing.classList.remove('active');
+    }
+
+    // --- 一键 AI 串行逻辑 ---
+    document.getElementById('btn-one-click-ai').onclick = async () => {
+        if (!currentOpenFile || currentOpenFile.type === 'image') return;
+        
+        const config = JSON.parse(localStorage.getItem('apiConfig'));
+        if (!config || !config.url || !config.key) {
+            alert('请先在设置中配置 AI API');
+            return;
+        }
+
+        if (!confirm('“一键 AI”将按顺序自动完成：划分章节、AI挖空、思维导图、AI出题和闪卡生成。这可能需要一分钟左右，确定开始吗？')) return;
+
+        const btn = document.getElementById('btn-one-click-ai');
+        const originalHTML = btn.innerHTML;
+        btn.style.background = "#8E8E93";
+        
+        const steps = [
+            { name: '划分章节', fn: () => performDivideChapters() },
+            { name: 'AI 挖空', fn: () => performAICloze() },
+            { name: '思维导图', fn: () => performRegenMindmap() },
+            { name: 'AI 出题', fn: () => startQuizAI('all', 10) },
+            { name: '生成闪卡', fn: () => processFlashcardGeneration(currentOpenFile, 'all') }
+        ];
+
+        try {
+            for (let i = 0; i < steps.length; i++) {
+                btn.innerHTML = `<div class="action-icon">⏳</div><span>${steps[i].name}...</span>`;
+                await steps[i].fn();
+                // 给 UI 和 API 一点缓冲时间
+                await new Promise(r => setTimeout(r, 1500));
+            }
+            alert('一键 AI 处理完成！所有功能已就绪。');
+        } catch (err) {
+            alert('一键 AI 在 [' + steps[i].name + '] 步骤出错: ' + err.message);
+        } finally {
+            btn.innerHTML = originalHTML;
+            btn.style.background = "linear-gradient(135deg, #6e8efb, #a777e3)";
+        }
+    };
+
+    // --- 导出练习题逻辑 ---
+    document.getElementById('btn-export-quiz').onclick = () => {
+        const cards = quizDisplayBody.querySelectorAll('.quiz-card');
+        if (cards.length === 0) {
+            alert('当前没有可导出的题目');
+            return;
+        }
+
+        let content = `背书助手 - AI 练习题导出\n文件：${currentOpenFile ? currentOpenFile.name : '未知'}\n导出日期：${new Date().toLocaleString()}\n\n`;
+        
+        cards.forEach((card, index) => {
+            const q = card.querySelector('.quiz-question').textContent;
+            const opts = Array.from(card.querySelectorAll('.quiz-option')).map(o => o.textContent.trim());
+            const ans = card.querySelector('.view-answer').textContent;
+            
+            content += `${q}\n`;
+            if (opts.length > 0) {
+                opts.forEach(opt => content += `${opt}\n`);
+            }
+            content += `【答案】${ans}\n\n`;
+        });
+
+        const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `练习题_${currentOpenFile ? currentOpenFile.name.split('.')[0] : 'export'}.txt`;
+        a.click();
+        URL.revokeObjectURL(url);
     };
 
     // --- 3. 悬浮按钮拖拽逻辑 ---
@@ -1515,6 +1831,14 @@ document.addEventListener('DOMContentLoaded', () => {
             await deleteMistakeFromDB(id);
             renderMistakes();
         }
+    };
+
+    document.getElementById('btn-export-mistakes-pdf').onclick = () => {
+        if (currentMistakeBookId === null) {
+            alert('请先进入一个具体的错题本再进行导出。');
+            return;
+        }
+        window.print();
     };
 
     document.getElementById('btn-clear-mistakes').onclick = () => {
@@ -1919,4 +2243,66 @@ document.addEventListener('DOMContentLoaded', () => {
         localStorage.setItem('apiConfig', JSON.stringify(config));
         alert('配置已保存！');
     });
+
+    // --- 数据导入导出逻辑 ---
+    const btnExportData = document.getElementById('btn-export-data');
+    const btnImportData = document.getElementById('btn-import-data');
+    const importDbInput = document.getElementById('import-db-input');
+
+    btnExportData.onclick = async () => {
+        const data = {
+            files: await loadFilesFromDB(),
+            flashcards: await loadFlashcardsFromDB(),
+            mistakes: await loadMistakesFromDB(),
+            mistakeBooks: await loadMistakeBooksFromDB(),
+            characters: await loadCharactersFromDB(),
+            apiConfig: JSON.parse(localStorage.getItem('apiConfig')) || {},
+            fabPosition: JSON.parse(localStorage.getItem('fabPosition')) || null
+        };
+
+        const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `backbook_backup_${new Date().toISOString().slice(0,10)}.json`;
+        a.click();
+        URL.revokeObjectURL(url);
+    };
+
+    btnImportData.onclick = () => importDbInput.click();
+
+    importDbInput.onchange = async (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+
+        const reader = new FileReader();
+        reader.onload = async (event) => {
+            try {
+                const data = JSON.parse(event.target.result);
+                if (confirm('导入将覆盖当前所有数据，确定继续吗？')) {
+                    // 清空并写入 IndexedDB
+                    const stores = [storeName, flashcardStoreName, mistakeStoreName, mistakeBookStoreName, characterStoreName, chatMessageStoreName];
+                    const transaction = db.transaction(stores, "readwrite");
+                    
+                    stores.forEach(s => transaction.objectStore(s).clear());
+                    
+                    if (data.files) data.files.forEach(f => transaction.objectStore(storeName).put(f));
+                    if (data.flashcards) data.flashcards.forEach(f => transaction.objectStore(flashcardStoreName).put(f));
+                    if (data.mistakes) data.mistakes.forEach(m => transaction.objectStore(mistakeStoreName).put(m));
+                    if (data.mistakeBooks) data.mistakeBooks.forEach(b => transaction.objectStore(mistakeBookStoreName).put(b));
+                    if (data.characters) data.characters.forEach(c => transaction.objectStore(characterStoreName).put(c));
+
+                    transaction.oncomplete = () => {
+                        if (data.apiConfig) localStorage.setItem('apiConfig', JSON.stringify(data.apiConfig));
+                        if (data.fabPosition) localStorage.setItem('fabPosition', JSON.stringify(data.fabPosition));
+                        alert('数据导入成功，页面即将刷新！');
+                        location.reload();
+                    };
+                }
+            } catch (err) {
+                alert('导入失败，文件格式可能不正确: ' + err.message);
+            }
+        };
+        reader.readAsText(file);
+    };
 });

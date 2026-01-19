@@ -74,7 +74,8 @@
                 <div class="icon">❌</div>
                 <p>错题集是进步的阶梯</p>
             </div>
-            <div id="mistake-actions" class="section-actions" style="display:none; padding: 16px;">
+            <div id="mistake-actions" class="section-actions" style="display:none; padding: 16px; flex-direction: column; gap: 10px;">
+                <button id="btn-export-mistakes-pdf" class="secondary-btn" style="width:100%; color: var(--primary-color); border-color: var(--primary-color);">导出为 PDF / 打印</button>
                 <button id="btn-clear-mistakes" class="secondary-btn" style="width:100%; color: #ff4d4f; border-color: #ff4d4f;">清空错题集</button>
             </div>
         </div>
@@ -103,6 +104,17 @@
                             </div>
                         </div>
                         <button id="save-api-btn" class="primary-btn">保存配置</button>
+                    </div>
+                </div>
+                <div class="settings-group">
+                    <div class="settings-item group-title">数据管理</div>
+                    <div class="api-config-form">
+                        <p style="font-size: 12px; color: var(--text-secondary); margin-bottom: 12px;">导出备份您的所有文件、闪卡、错题及 AI 配置。</p>
+                        <div style="display: flex; gap: 10px;">
+                            <button id="btn-export-data" class="secondary-btn" style="flex: 1; padding: 10px;">导出数据</button>
+                            <button id="btn-import-data" class="secondary-btn" style="flex: 1; padding: 10px;">导入数据</button>
+                        </div>
+                        <input type="file" id="import-db-input" hidden accept=".json">
                     </div>
                 </div>
                 <div class="settings-item">关于我们</div>
@@ -197,7 +209,48 @@
                 <div class="action-icon">📝</div>
                 <span>AI出题</span>
             </div>
+            <div class="action-btn" id="btn-ear-return">
+                <div class="action-icon">🎧</div>
+                <span>耳返</span>
+            </div>
+            <div class="action-btn" id="btn-one-click-ai" style="background: linear-gradient(135deg, #6e8efb, #a777e3); color: white; border-radius: 12px; margin: 4px;">
+                <div class="action-icon">🚀</div>
+                <span style="color: white;">一键AI</span>
+            </div>
         </footer>
+    </div>
+
+    <!-- 耳返背书层 -->
+    <div id="ear-return-viewer" class="file-viewer" style="background: #1c1c1e; color: white;">
+        <header class="viewer-header" style="background: #2c2c2e; border-bottom: 1px solid #3a3a3c;">
+            <button id="close-ear-return" class="back-btn" style="color: white;">✕</button>
+            <h2 style="color: white;">耳返背书</h2>
+            <div style="width: 40px;"></div>
+        </header>
+        <div class="viewer-content" style="background: #1c1c1e; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 40px;">
+            <div id="ear-return-status" style="font-size: 18px; color: #34C759;">准备就绪</div>
+            <div id="ear-return-visualizer" class="visualizer-container">
+                <div class="pulse-ring"></div>
+                <span style="font-size: 64px;">🎙️</span>
+            </div>
+            <p style="text-align: center; color: #8E8E93; padding: 0 20px; font-size: 14px;">
+                提示：请务必佩戴耳机使用，否则会产生剧烈啸叫。<br>耳返功能可以让你实时听到自己的背诵声，增强记忆。
+            </p>
+            <button id="btn-toggle-ear-return" class="primary-btn" style="width: 200px; height: 60px; border-radius: 30px; font-size: 18px;">开启耳返</button>
+        </div>
+    </div>
+
+    <!-- 文本粘贴弹窗 -->
+    <div id="paste-modal" class="modal-overlay">
+        <div class="modal-content" style="max-width: 95%; width: 500px; padding: 20px;">
+            <h3 class="modal-title">粘贴文本内容</h3>
+            <input type="text" id="paste-file-name" placeholder="请输入文件名..." style="width: 100%; padding: 12px; margin-bottom: 12px; border: 1px solid #E5E5EA; border-radius: 10px; outline: none;">
+            <textarea id="paste-area" placeholder="在此粘贴长篇背诵内容..." style="width: 100%; height: 60vh; padding: 15px; border: 1px solid #E5E5EA; border-radius: 10px; resize: none; font-size: 15px; line-height: 1.6; overflow-y: auto; outline: none;"></textarea>
+            <div class="edit-actions" style="margin-top: 15px;">
+                <button id="btn-confirm-paste" class="primary-btn">保存文件</button>
+                <button id="btn-cancel-paste" class="secondary-btn">取消</button>
+            </div>
+        </div>
     </div>
 
     <!-- 通用选择弹窗 -->
@@ -216,7 +269,10 @@
         <header class="quiz-viewer-header">
             <button id="close-quiz" class="back-btn">✕</button>
             <h2 id="quiz-type-title">AI 练习题</h2>
-            <div style="width: 40px;"></div>
+            <div class="header-actions">
+                <button id="btn-regen-quiz" class="back-btn" title="重新生成">🔄</button>
+                <button id="btn-export-quiz" class="back-btn" title="导出">📥</button>
+            </div>
         </header>
         <div class="quiz-viewer-content" id="quiz-display-body">
             <!-- 题目将在这里动态生成 -->
@@ -284,6 +340,12 @@
             <div class="card-controls">
                 <button id="prev-card" class="secondary-btn">上一个</button>
                 <button id="next-card" class="primary-btn">下一个</button>
+            </div>
+            <div id="card-feedback-controls" class="card-feedback-grid" style="display: none;">
+                <button class="feedback-btn forgot" data-level="0">不记得</button>
+                <button class="feedback-btn hard" data-level="1">模糊</button>
+                <button class="feedback-btn good" data-level="3">熟悉</button>
+                <button class="feedback-btn easy" data-level="5">完美</button>
             </div>
         </div>
     </div>

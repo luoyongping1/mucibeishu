@@ -153,6 +153,21 @@ main {
     background: rgba(255, 77, 79, 0.1);
 }
 
+.file-edit-btn {
+    padding: 8px;
+    color: var(--primary-color);
+    font-size: 18px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 8px;
+    transition: background 0.2s;
+}
+
+.file-edit-btn:active {
+    background: rgba(0, 122, 255, 0.1);
+}
+
 /* 文件预览层 */
 .file-viewer {
     position: fixed;
@@ -174,11 +189,22 @@ main {
 
 .viewer-header {
     background: var(--white);
-    padding: 16px;
+    padding: 8px 16px;
     display: flex;
     align-items: center;
     justify-content: space-between;
     border-bottom: 1px solid #E5E5EA;
+    min-height: 56px;
+}
+
+.viewer-header h2 {
+    font-size: 16px;
+    flex: 1;
+    text-align: center;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    margin: 0 8px;
 }
 
 .back-btn {
@@ -187,6 +213,11 @@ main {
     font-size: 20px;
     padding: 8px;
     cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-main);
+    min-width: 40px;
 }
 
 .viewer-content {
@@ -818,6 +849,53 @@ main {
     opacity: 0.7;
 }
 
+/* 耳返视觉效果 */
+.visualizer-container {
+    position: relative;
+    width: 120px;
+    height: 120px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1;
+}
+
+.pulse-ring {
+    position: absolute;
+    width: 100%;
+    height: 100%;
+    border: 4px solid #34C759;
+    border-radius: 50%;
+    opacity: 0;
+}
+
+.pulse-ring.active {
+    animation: pulse-animation 2s infinite;
+}
+
+@keyframes pulse-animation {
+    0% { transform: scale(0.8); opacity: 0.8; }
+    100% { transform: scale(2); opacity: 0; }
+}
+
+/* 增强版粘贴弹窗样式 */
+#paste-modal .modal-content {
+    background: var(--white);
+    box-shadow: 0 10px 40px rgba(0,0,0,0.2);
+}
+
+#paste-area {
+    -webkit-overflow-scrolling: touch;
+    border: 1px solid #E5E5EA;
+    background: #F9F9F9;
+    transition: border-color 0.3s;
+}
+
+#paste-area:focus {
+    border-color: var(--primary-color);
+    background: #FFF;
+}
+
 /* 悬浮按钮 (FAB) */
 .fab {
     position: fixed;
@@ -1177,6 +1255,50 @@ main {
     font-size: 16px;
 }
 
+.card-feedback-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 8px;
+    width: 100%;
+    max-width: 360px;
+    margin-top: 10px;
+}
+
+.feedback-btn {
+    border: none;
+    border-radius: 12px;
+    padding: 12px 4px;
+    font-size: 13px;
+    font-weight: 600;
+    color: white;
+    cursor: pointer;
+    transition: transform 0.1s;
+}
+
+.feedback-btn:active {
+    transform: scale(0.95);
+}
+
+.feedback-btn.forgot { background-color: #FF3B30; }
+.feedback-btn.hard { background-color: #FF9500; }
+.feedback-btn.good { background-color: #007AFF; }
+.feedback-btn.easy { background-color: #34C759; }
+
+.card-progress-bar {
+    width: 100%;
+    height: 4px;
+    background: #E5E5EA;
+    border-radius: 2px;
+    margin-top: 8px;
+    overflow: hidden;
+}
+
+.card-progress-fill {
+    height: 100%;
+    background: var(--primary-color);
+    transition: width 0.3s ease;
+}
+
 /* 弹窗/选择器样式 */
 .modal-overlay {
     position: fixed;
@@ -1269,14 +1391,81 @@ main {
     gap: 8px;
 }
 
-.mistake-book-edit, .mistake-book-delete {
-    padding: 4px;
+.book-action-btn {
+    padding: 6px;
     font-size: 18px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 6px;
+}
+
+.book-action-btn:active {
+    background: #F2F2F7;
+}
+
+.mistake-back-btn {
+    padding: 12px 16px;
+    background: var(--white);
+    margin-bottom: 12px;
+    border-radius: 12px;
+    font-size: 14px;
+    color: var(--primary-color);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.05);
 }
 
 /* 适配不同屏幕 */
 @media screen and (max-width: 320px) {
     .nav-item span {
         display: none;
+    }
+}
+
+/* 打印/导出 PDF 样式 */
+@media print {
+    body {
+        background: white;
+        height: auto;
+        overflow: visible;
+    }
+    .app-header, .bottom-nav, .fab, .section-actions, .mistake-back-btn, .mistake-item-delete, .view-answer, .add-mistake-btn {
+        display: none !important;
+    }
+    main {
+        padding: 0;
+        overflow: visible;
+    }
+    .content-section {
+        display: none !important;
+    }
+    .content-section#section-mistakes {
+        display: block !important;
+    }
+    .mistake-groups {
+        gap: 0;
+    }
+    .mistake-book-item {
+        box-shadow: none;
+        border: 1px solid #eee;
+        margin-bottom: 20px;
+        page-break-inside: avoid;
+    }
+    .quiz-card {
+        box-shadow: none;
+        border: 1px solid #eee;
+        margin-bottom: 20px;
+        page-break-inside: avoid;
+    }
+    .quiz-answer-box {
+        display: block !important;
+        color: black !important;
+    }
+    .quiz-answer-box::before {
+        content: "【答案】";
+        font-weight: bold;
     }
 }
